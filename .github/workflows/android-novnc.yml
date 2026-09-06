@@ -1,0 +1,52 @@
+name: Android noVNC Emulator via Nginx
+
+on:
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  run-emulator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install noVNC and GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y x11vnc xvfb fluxbox novnc python3-pip
+
+      - name: Setup SSH Key Connection
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p ${{ secrets.LOCAL_SSH_PORT }} -H ${{ secrets.LOCAL_PC_IP }} >> ~/.ssh/known_hosts
+
+      - name: Run Android Emulator & Tunnel to Nginx
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          script: |
+            # 1. Start virtual monitor
+            Xvfb :1 -screen 0 1080x1920x24 &
+            export DISPLAY=:1
+            fluxbox &
+            
+            # 2. Convert to VNC (Port 5900)
+            x11vnc -display :1 -nopw -forever -bg
+            
+            # 3. Create folder structure matching Nginx path
+            sudo mkdir -p /usr/share/novnc/emulator
+            sudo cp -r /usr/share/novnc/* /usr/share/novnc/emulator/ 2>/dev/null || true
+            
+            # 4. Start noVNC web stream (Port 80)
+            /usr/share/novnc/utils/launch.sh --vnc localhost:5900 --listen 80 &
+            
+            # 5. Reverse loopback to your local computer's Nginx bridge
+            # Replace 'your_local_username' with your actual PC system username
+            ssh -N -R 6080:localhost:80 -p ${{ secrets.LOCAL_SSH_PORT }} your_local_username@${{ secrets.LOCAL_PC_IP }} &
+            
+            echo "🚀 System Active!"
+            sleep 21600
