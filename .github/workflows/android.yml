@@ -38,18 +38,12 @@ jobs:
       - name: Verify Tailscale
         run: |
 
-          echo "Waiting for Tailscale..."
-
           sleep 5
 
-
           echo "Tailscale status:"
-
           sudo tailscale status
 
-
           echo "Tailscale IP:"
-
           sudo tailscale ip -4
 
 
@@ -72,11 +66,11 @@ jobs:
 
         with:
 
-          api-level: 29
+          api-level: 34
 
-          target: default
+          target: google_apis
 
-          arch: x86
+          arch: x86_64
 
 
           emulator-options: >
@@ -89,6 +83,12 @@ jobs:
 
             -no-boot-anim
 
+            -no-snapshot
+
+            -no-snapshot-save
+
+            -wipe-data
+
 
           disable-animations: true
 
@@ -96,62 +96,87 @@ jobs:
 
           script: |
 
-            echo "Waiting for emulator..."
 
+            echo "Restarting ADB..."
+
+            adb kill-server
+
+            adb start-server
+
+
+
+            echo "Waiting for emulator device..."
 
             adb wait-for-device
 
 
 
-            echo "Waiting for Android startup..."
-
+            echo "Waiting for Android..."
 
             sleep 30
 
 
 
-            echo "Android boot property:"
+            echo "Checking device state..."
 
+
+            adb devices
+
+
+
+            echo "Reconnect offline devices..."
+
+            adb reconnect
+
+
+
+            sleep 10
+
+
+
+            adb devices
+
+
+
+            echo "Boot status:"
 
             adb shell getprop sys.boot_completed
 
 
 
-            echo "Enable ADB TCP mode..."
-
+            echo "Enable TCP ADB..."
 
             adb tcpip 5555
+
 
 
             sleep 5
 
 
 
-            echo "Getting Tailscale IP..."
-
-
-            TAILSCALE_IP=$(sudo tailscale ip -4)
+            IP=$(sudo tailscale ip -4)
 
 
 
             echo ""
 
-            echo "================================="
+            echo "================================"
 
-            echo " CONNECT USING THIS ADB ADDRESS "
-
-            echo ""
-
-            echo "${TAILSCALE_IP}:5555"
+            echo "ADB CONNECTION ADDRESS"
 
             echo ""
 
-            echo "================================="
+            echo "${IP}:5555"
+
+            echo ""
+
+            echo "================================"
+
 
 
             echo ""
 
-            echo "Emulator running for 6 hours"
+            echo "Keeping emulator alive"
 
 
 
