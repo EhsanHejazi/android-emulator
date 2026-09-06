@@ -1,4 +1,4 @@
-name: Headless Android Emulator Test
+name: Stream Headless Android Screen via ADB
 
 on:
   workflow_dispatch:
@@ -7,8 +7,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  test-headless-android:
-    runs-on: ubuntu-latest # Instantly launches on the unlimited Linux pool
+  stream-android:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
@@ -25,19 +25,34 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Run Headless Background Emulator
+      - name: Install Cloudflare on Runner
+        run: |
+          curl -L --output cloudflared.deb https://github.com
+          sudo dpkg -i cloudflared.deb
+
+      - name: Run Headless Emulator & Stream ADB
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 25 # Low API level consumes almost no RAM
+          api-level: 25
           target: default
-          arch: x86 # x86 architecture matches native Linux platforms perfectly
+          arch: x86
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            echo "Checking background device connectivity..."
-            adb devices
+            # 1. Force the emulator to accept network connections over port 5555
+            adb tcpip 5555
+            sleep 2
             
-            echo "Device System Boot Status Output:"
-            adb shell getprop ro.build.version.release
+            # 2. Spin up a Cloudflare quick tunnel routing raw TCP port 5555
+            cloudflared tunnel --url tcp://localhost:5555 > cloudflare.log 2>&1 &
+            sleep 5
             
-            echo "Headless emulator initialized and tested successfully!"
+            # 3. Output the raw TCP address connection string to your logs
+            TCP_URL=$(grep -oE "tcp://[a-zA-Z0-9.-]+\.trycloudflare\.com:[0-9]+" cloudflare.log | head -n 1)
+            echo "--------------------------------------------------------"
+            echo "👉 YOUR TEMPORARY ADB SERVER STRIP DOWN:"
+            echo "$TCP_URL"
+            echo "--------------------------------------------------------"
+            
+            # Keep the tunnel alive for 6 hours
+            sleep 21600
