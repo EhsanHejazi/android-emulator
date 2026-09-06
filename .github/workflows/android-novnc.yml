@@ -3,6 +3,9 @@ name: Android noVNC Emulator via Cloudflare
 on:
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true" # Bypasses the Node warning completely
+
 jobs:
   run-emulator:
     runs-on: ubuntu-latest
@@ -29,14 +32,14 @@ jobs:
 
       - name: Download Emulator Image & Accept Licenses
         run: |
-          # Accept licenses and install platform tools, system image, and emulator
+          # Use an ARM-based system image which runs reliably without hardware acceleration extensions
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "emulator" "system-images;android-29;default;x86_64"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "emulator" "system-images;android-25;default;armeabi-v7a"
 
       - name: Create Android Virtual Device (AVD)
         run: |
-          # Create an emulator profile named 'test_device'
-          echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n test_device -k "system-images;android-29;default;x86_64" --force
+          # Create an emulator profile named 'test_device' matching the ARM build
+          echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n test_device -k "system-images;android-25;default;armeabi-v7a" --force
 
       - name: Setup Cloudflare Quick Tunnel on Runner
         run: |
@@ -62,8 +65,8 @@ jobs:
           export DISPLAY=:1
           fluxbox &
           
-          # 2. Boot up the hardware emulator acceleration in headless background mode
-          $ANDROID_HOME/emulator/emulator -avd test_device -no-audio -no-boot-anim -gpu swiftshader_indirect &
+          # 2. Boot up the hardware emulator utilizing software rendering to prevent exit code errors
+          $ANDROID_HOME/emulator/emulator -avd test_device -no-audio -no-boot-anim -gpu swiftshader_indirect -no-accel &
           
           # 3. Map screen output to VNC port 5900
           x11vnc -display :1 -nopw -forever -bg
