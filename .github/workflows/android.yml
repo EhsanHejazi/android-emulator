@@ -23,7 +23,7 @@ jobs:
           java-version: 17
 
 
-      - name: Install Tailscale
+      - name: Setup Tailscale
         uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
@@ -41,14 +41,11 @@ jobs:
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-
           sudo udevadm control --reload-rules
-
           sudo udevadm trigger --name-match=kvm
 
 
       - name: Start Android Emulator
-
         uses: reactivecircus/android-emulator-runner@v2
 
         with:
@@ -69,39 +66,22 @@ jobs:
 
 
           script: |
-
             echo "Waiting for emulator..."
 
             adb wait-for-device
 
 
-            echo "Checking Android boot status..."
+            echo "Waiting for Android startup..."
+
+            sleep 30
 
 
-            while true
-            do
+            echo "Android boot property:"
 
-              BOOT=$(adb shell getprop sys.boot_completed | tr -d '\r')
-
-              echo "Boot status: $BOOT"
+            adb shell getprop sys.boot_completed
 
 
-              if [ "$BOOT" = "1" ]
-              then
-                break
-              fi
-
-
-              sleep 3
-
-            done
-
-
-            echo "Android is ready"
-
-
-            echo "Restarting ADB in TCP mode..."
-
+            echo "Enable ADB TCP mode..."
 
             adb tcpip 5555
 
@@ -114,14 +94,14 @@ jobs:
 
             echo ""
             echo "================================="
-            echo " CONNECT USING THIS ADB ADDRESS "
+            echo " CONNECT USING THIS ADDRESS:"
             echo ""
-            echo "$TAILSCALE_IP:5555"
+            echo "${TAILSCALE_IP}:5555"
             echo "================================="
 
 
             echo ""
-            echo "Emulator will stay alive for 6 hours"
+            echo "Emulator running for 6 hours"
 
 
             sleep 21600
