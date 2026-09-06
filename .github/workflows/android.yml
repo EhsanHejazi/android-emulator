@@ -13,51 +13,56 @@ jobs:
 
     steps:
 
-      - name: Checkout repository
+
+      - name: Checkout
         uses: actions/checkout@v5
 
 
-      - name: Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: zulu
-          java-version: 17
 
-
-      - name: Install Android SDK
+      - name: Setup Android SDK Path
 
         run: |
 
-          yes | sdkmanager --licenses || true
+          echo "ANDROID_HOME=$ANDROID_HOME"
 
-          sdkmanager \
-            "platform-tools" \
-            "emulator" \
-            "platforms;android-34" \
-            "system-images;android-34;google_apis;x86_64"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+
+          echo "$ANDROID_HOME/emulator" >> $GITHUB_PATH
 
 
 
-      - name: Enable KVM
+      - name: Install Android 14 Image
 
         run: |
 
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
-
-          sudo udevadm control --reload-rules
-
-          sudo udevadm trigger
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
 
+          echo "Using:"
+          $SDKMANAGER --version
 
-      - name: Create Android 14 Emulator
+
+          yes | $SDKMANAGER --licenses || true
+
+
+          $SDKMANAGER \
+          "platform-tools" \
+          "emulator" \
+          "platforms;android-34" \
+          "system-images;android-34;google_apis;x86_64"
+
+
+
+      - name: Create Android 14 AVD
 
         run: |
 
           echo "no" | avdmanager create avd \
-            -n android14 \
-            -k "system-images;android-34;google_apis;x86_64" \
-            --force
+          -n android14 \
+          -k "system-images;android-34;google_apis;x86_64" \
+          --force
 
 
 
@@ -73,94 +78,55 @@ jobs:
 
 
 
-      - name: Check Tailscale
+      - name: Enable KVM
 
         run: |
 
-          sleep 5
-
-          echo "Tailscale status"
-
-          sudo tailscale status
-
-
-          echo "Tailscale IP"
-
-          sudo tailscale ip -4
+          sudo chmod 666 /dev/kvm || true
 
 
 
-      - name: Start Android Emulator
+      - name: Start Emulator
 
         run: |
-
-          echo "Starting Android 14 emulator"
 
 
           emulator \
-            -avd android14 \
-            -no-window \
-            -no-audio \
-            -gpu swiftshader_indirect \
-            -no-boot-anim \
-            -no-snapshot \
-            -no-snapshot-save \
-            -wipe-data \
-            > emulator.log 2>&1 &
+          -avd android14 \
+          -no-window \
+          -no-audio \
+          -gpu swiftshader_indirect \
+          -no-boot-anim \
+          -no-snapshot \
+          -wipe-data \
+          > emulator.log 2>&1 &
 
 
-
-          echo "Starting ADB"
 
           adb start-server
 
 
 
-          echo "Waiting for emulator device"
-
+          echo "Waiting for emulator..."
 
           adb wait-for-device
 
 
 
-          echo "Waiting for Android boot"
+          echo "Waiting for Android boot..."
 
 
-          COUNT=0
-
-          until adb shell getprop sys.boot_completed | grep -m 1 "1"
+          timeout 180 bash -c '
+          until adb shell getprop sys.boot_completed | grep -q 1
           do
-
             sleep 5
-
-            COUNT=$((COUNT+1))
-
-
-            if [ $COUNT -gt 60 ]
-            then
-              echo "Android boot timeout"
-
-              cat emulator.log
-
-              exit 1
-
-            fi
-
           done
+          '
 
 
 
-          echo "Android started"
+          echo "Android ready"
 
-
-
-          echo "ADB devices"
-
-          adb devices
-
-
-
-          echo "Enable TCP ADB"
 
 
           adb tcpip 5555
@@ -171,27 +137,15 @@ jobs:
 
 
 
-          IP=$(sudo tailscale ip -4)
+          IP=$(tailscale ip -4)
 
 
 
           echo ""
-
-          echo "===================================="
-
-          echo " CONNECT FROM YOUR PC USING:"
-
-          echo ""
-
-          echo "adb connect ${IP}:5555"
-
-          echo ""
-
-          echo "===================================="
-
-
-
-          echo "Keeping emulator alive for 6 hours"
+          echo "================================"
+          echo "ADB ADDRESS:"
+          echo "${IP}:5555"
+          echo "================================"
 
 
 
