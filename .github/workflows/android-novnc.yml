@@ -1,14 +1,23 @@
 name: Headless Android Emulator Test
 
 on:
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   test-headless-android:
-    runs-on: macos-13 # Standard macOS runners have hardware acceleration pre-enabled out of the box
+    runs-on: ubuntu-latest # Instantly launches on the unlimited Linux pool
     steps:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
+
+      - name: Enable KVM permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       - name: Setup Java Environment
         uses: actions/setup-java@v4
@@ -19,19 +28,16 @@ jobs:
       - name: Run Headless Background Emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
+          api-level: 25 # Low API level consumes almost no RAM
           target: default
-          arch: x86_64
-          # Crucial option strings used by CI systems to drop all visual rendering
+          arch: x86 # x86 architecture matches native Linux platforms perfectly
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
-          
-          # This is the ONLY thing a headless runner can do: execute text commands against ADB
           script: |
-            echo "Checking if the emulator is visible over Android Debug Bridge..."
+            echo "Checking background device connectivity..."
             adb devices
             
-            echo "Fetching device system properties to verify it is alive:"
+            echo "Device System Boot Status Output:"
             adb shell getprop ro.build.version.release
             
-            echo "The emulator is healthy. Executing background tasks completed successfully!"
+            echo "Headless emulator initialized and tested successfully!"
