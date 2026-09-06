@@ -1,4 +1,4 @@
-name: Android Emulator Remote Screen
+name: Android 14 Remote Emulator
 
 on:
   workflow_dispatch:
@@ -13,10 +13,8 @@ jobs:
 
     steps:
 
-
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v5
-
 
 
       - name: Setup Java
@@ -26,158 +24,175 @@ jobs:
           java-version: 17
 
 
+      - name: Install Android SDK
 
-      - name: Setup Tailscale
-        uses: tailscale/github-action@v4
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-          hostname: github-android-emulator
-
-
-
-      - name: Verify Tailscale
         run: |
 
-          sleep 5
+          yes | sdkmanager --licenses || true
 
-          echo "Tailscale status:"
-          sudo tailscale status
-
-          echo "Tailscale IP:"
-          sudo tailscale ip -4
+          sdkmanager \
+            "platform-tools" \
+            "emulator" \
+            "platforms;android-34" \
+            "system-images;android-34;google_apis;x86_64"
 
 
 
       - name: Enable KVM
+
         run: |
 
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
 
           sudo udevadm control --reload-rules
 
-          sudo udevadm trigger --name-match=kvm
+          sudo udevadm trigger
+
+
+
+      - name: Create Android 14 Emulator
+
+        run: |
+
+          echo "no" | avdmanager create avd \
+            -n android14 \
+            -k "system-images;android-34;google_apis;x86_64" \
+            --force
+
+
+
+      - name: Setup Tailscale
+
+        uses: tailscale/github-action@v4
+
+        with:
+
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+          hostname: github-android14
+
+
+
+      - name: Check Tailscale
+
+        run: |
+
+          sleep 5
+
+          echo "Tailscale status"
+
+          sudo tailscale status
+
+
+          echo "Tailscale IP"
+
+          sudo tailscale ip -4
 
 
 
       - name: Start Android Emulator
 
-        uses: reactivecircus/android-emulator-runner@v2
+        run: |
+
+          echo "Starting Android 14 emulator"
 
 
-        with:
-
-          api-level: 34
-
-          target: google_apis
-
-          arch: x86_64
-
-
-          emulator-options: >
-
-            -no-window
-
-            -gpu swiftshader_indirect
-
-            -noaudio
-
-            -no-boot-anim
-
-            -no-snapshot
-
-            -no-snapshot-save
-
-            -wipe-data
-
-
-          disable-animations: true
+          emulator \
+            -avd android14 \
+            -no-window \
+            -no-audio \
+            -gpu swiftshader_indirect \
+            -no-boot-anim \
+            -no-snapshot \
+            -no-snapshot-save \
+            -wipe-data \
+            > emulator.log 2>&1 &
 
 
 
-          script: |
+          echo "Starting ADB"
 
-
-            echo "Restarting ADB..."
-
-            adb kill-server
-
-            adb start-server
+          adb start-server
 
 
 
-            echo "Waiting for emulator device..."
-
-            adb wait-for-device
+          echo "Waiting for emulator device"
 
 
-
-            echo "Waiting for Android..."
-
-            sleep 30
+          adb wait-for-device
 
 
 
-            echo "Checking device state..."
+          echo "Waiting for Android boot"
 
 
-            adb devices
+          COUNT=0
 
-
-
-            echo "Reconnect offline devices..."
-
-            adb reconnect
-
-
-
-            sleep 10
-
-
-
-            adb devices
-
-
-
-            echo "Boot status:"
-
-            adb shell getprop sys.boot_completed
-
-
-
-            echo "Enable TCP ADB..."
-
-            adb tcpip 5555
-
-
+          until adb shell getprop sys.boot_completed | grep -m 1 "1"
+          do
 
             sleep 5
 
+            COUNT=$((COUNT+1))
 
 
-            IP=$(sudo tailscale ip -4)
+            if [ $COUNT -gt 60 ]
+            then
+              echo "Android boot timeout"
 
+              cat emulator.log
 
+              exit 1
 
-            echo ""
+            fi
 
-            echo "================================"
-
-            echo "ADB CONNECTION ADDRESS"
-
-            echo ""
-
-            echo "${IP}:5555"
-
-            echo ""
-
-            echo "================================"
+          done
 
 
 
-            echo ""
-
-            echo "Keeping emulator alive"
+          echo "Android started"
 
 
 
-            sleep 21600
+          echo "ADB devices"
+
+          adb devices
+
+
+
+          echo "Enable TCP ADB"
+
+
+          adb tcpip 5555
+
+
+
+          sleep 5
+
+
+
+          IP=$(sudo tailscale ip -4)
+
+
+
+          echo ""
+
+          echo "===================================="
+
+          echo " CONNECT FROM YOUR PC USING:"
+
+          echo ""
+
+          echo "adb connect ${IP}:5555"
+
+          echo ""
+
+          echo "===================================="
+
+
+
+          echo "Keeping emulator alive for 6 hours"
+
+
+
+          sleep 21600
