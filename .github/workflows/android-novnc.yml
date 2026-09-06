@@ -1,10 +1,10 @@
 name: Android noVNC Emulator via Cloudflare
 
 on:
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 env:
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true" # Bypasses the Node warning completely
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true" # Forces GitHub actions to use Node 24, completely removing the Node 20 warning
 
 jobs:
   run-emulator:
@@ -13,70 +13,32 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install noVNC and GUI dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y x11vnc xvfb fluxbox novnc python3-pip
-
-      - name: Install Android SDK and Tools
-        run: |
-          # 1. Download basic Android Command Line Tools
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          curl -L -o commandlinetools.zip https://google.com
-          unzip commandlinetools.zip -d $HOME/android-sdk/cmdline-tools
-          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
-
-          # 2. Setup Environment Variables
-          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "PATH=$PATH:$HOME/android-sdk/cmdline-tools/latest/bin:$HOME/android-sdk/emulator:$HOME/android-sdk/platform-tools" >> $GITHUB_ENV
-
-      - name: Download Emulator Image & Accept Licenses
-        run: |
-          # Use an ARM-based system image which runs reliably without hardware acceleration extensions
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "emulator" "system-images;android-25;default;armeabi-v7a"
-
-      - name: Create Android Virtual Device (AVD)
-        run: |
-          # Create an emulator profile named 'test_device' matching the ARM build
-          echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n test_device -k "system-images;android-25;default;armeabi-v7a" --force
-
-      - name: Setup Cloudflare Quick Tunnel on Runner
+      - name: Setup Cloudflare Quick Tunnel
+        id: cloudflare
         run: |
           # Download and install cloudflared binary
           curl -L --output cloudflared.deb https://github.com
           sudo dpkg -i cloudflared.deb
           
-          # Spin up quick tunnel pointing to our local web server on port 80
-          cloudflared tunnel --url http://localhost:80 > cloudflare.log 2>&1 &
+          # Spin up quick tunnel pointing to local port 6080 (where noVNC runs inside the docker container)
+          cloudflared tunnel --url http://localhost:6080 > cloudflare.log 2>&1 &
           sleep 5
           
           # Print the live web access link directly to the console logs
           TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" cloudflare.log | head -n 1)
           echo "--------------------------------------------------------"
-          echo "🔗 LIVE EMULATOR WEB LINK BELOW:"
-          echo "$TUNNEL_URL/emulator/vnc.html"
+          echo "🔗 LIVE EMULATOR WEB LINK:"
+          echo "$TUNNEL_URL/vnc.html"
           echo "--------------------------------------------------------"
 
-      - name: Run Android Emulator & Start Stream
+      - name: Run Headless Android Container
         run: |
-          # 1. Start a virtual frame display monitor
-          Xvfb :1 -screen 0 1080x1920x24 &
-          export DISPLAY=:1
-          fluxbox &
+          # Launch a pre-configured Android emulator container with an embedded noVNC server on port 6080
+          # This build utilizes internal software rendering (SwiftShader) to prevent hardware virtualization crashes (Exit Code 9)
+          docker run -d -p 6080:6080 --device /dev/kvm:/dev/kvm --privileged budtmo/docker-android-x86-11.0
           
-          # 2. Boot up the hardware emulator utilizing software rendering to prevent exit code errors
-          $ANDROID_HOME/emulator/emulator -avd test_device -no-audio -no-boot-anim -gpu swiftshader_indirect -no-accel &
-          
-          # 3. Map screen output to VNC port 5900
-          x11vnc -display :1 -nopw -forever -bg
-          
-          # 4. Map the layout directory matching our path routing
-          sudo mkdir -p /usr/share/novnc/emulator
-          sudo cp -r /usr/share/novnc/* /usr/share/novnc/emulator/ 2>/dev/null || true
-          
-          # 5. Turn VNC stream into an interactive website on Port 80
-          /usr/share/novnc/utils/launch.sh --vnc localhost:5900 --listen 80 &
+          echo "Waiting for the container environment to initialize..."
+          sleep 30
           
           # Keep runner alive for up to 6 hours
           sleep 21600
