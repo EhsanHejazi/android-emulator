@@ -1,0 +1,78 @@
+name: Android Emulator Remote Screen
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+  android:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v5
+
+
+    - name: Setup Java
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: 17
+
+
+    - name: Install Tailscale
+      uses: tailscale/github-action@v4
+      with:
+        authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+
+    - name: Start Emulator
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+
+        api-level: 30
+        target: google_apis
+        arch: x86_64
+
+        emulator-options: >
+          -no-window
+          -gpu swiftshader_indirect
+          -noaudio
+          -no-boot-anim
+
+        disable-animations: true
+
+
+        script: |
+
+          echo "Waiting Android..."
+
+          adb wait-for-device
+
+
+          until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]
+          do
+             sleep 3
+          done
+
+
+          echo "Android Ready"
+
+
+          adb tcpip 5555
+
+
+          IP=$(tailscale ip -4)
+
+
+          echo ""
+          echo "=============================="
+          echo "ADB ADDRESS:"
+          echo "$IP:5555"
+          echo "=============================="
+
+
+
+          sleep 21600
